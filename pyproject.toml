@@ -31,6 +31,9 @@ borb = "app.main:run"
 where = ["."]
 include = ["app*"]
 
+[tool.setuptools.package-data]
+app = ["agent/system_prompt.md"]
+
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
