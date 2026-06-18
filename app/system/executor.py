@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import subprocess
 
 from app.config import Settings
 from app.schemas import (
@@ -58,23 +59,22 @@ class SystemExecutor:
     # --- shell -------------------------------------------------------------- #
     async def _run_shell(self, action: ShellAction) -> ActionResult:
         cwd = action.cwd or self.settings.workspace_root or os.getcwd()
-        proc = await asyncio.create_subprocess_shell(
-            action.command,
-            cwd=cwd,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
+
+        # Run the command in a worker thread via blocking ``subprocess.run``
+        # rather than ``asyncio.create_subprocess_shell``. The asyncio
+        # subprocess API is unsupported on the Windows ``SelectorEventLoop``
+        # (the loop uvicorn runs on by default) and raises ``NotImplementedError``
+        # there. Offloading a blocking call keeps shell execution working on
+        # every platform regardless of the active event loop policy.
         try:
-            stdout_b, stderr_b = await asyncio.wait_for(
-                proc.communicate(), timeout=self.settings.shell_timeout
-            )
-        except asyncio.TimeoutError:
-            proc.kill()
-            await proc.wait()
+            completed = await asyncio.to_thread(self._run_shell_blocking, action.command, cwd)
+        except subprocess.TimeoutExpired as exc:
             return ActionResult(
                 type=ActionType.SHELL,
                 intent=action.intent,
                 command=action.command,
+                stdout=_clip(_as_text(exc.stdout)),
+                stderr=_clip(_as_text(exc.stderr)),
                 status="error",
                 error=f"command timed out after {self.settings.shell_timeout}s",
             )
@@ -83,10 +83,21 @@ class SystemExecutor:
             type=ActionType.SHELL,
             intent=action.intent,
             command=action.command,
-            exit_code=proc.returncode,
-            stdout=_clip(stdout_b.decode("utf-8", errors="replace")),
-            stderr=_clip(stderr_b.decode("utf-8", errors="replace")),
+            exit_code=completed.returncode,
+            stdout=_clip(completed.stdout),
+            stderr=_clip(completed.stderr),
             status="executed",
+        )
+
+    def _run_shell_blocking(self, command: str, cwd: str) -> subprocess.CompletedProcess:
+        return subprocess.run(
+            command,
+            shell=True,
+            cwd=cwd,
+            capture_output=True,
+            text=True,
+            errors="replace",
+            timeout=self.settings.shell_timeout,
         )
 
     # --- filesystem --------------------------------------------------------- #
@@ -119,6 +130,15 @@ class SystemExecutor:
             output=_clip("\n".join(entries)),
             status="executed",
         )
+
+
+def _as_text(value: object) -> str:
+    """Normalise possibly-``None``/bytes partial output (e.g. from a timeout)."""
+    if value is None:
+        return ""
+    if isinstance(value, bytes):
+        return value.decode("utf-8", errors="replace")
+    return str(value)
 
 
 def _clip(text: str) -> str:
