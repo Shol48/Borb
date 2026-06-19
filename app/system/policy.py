@@ -20,6 +20,7 @@ from app.schemas import (
     PolicyDecision,
     PolicyDecisionType,
     ShellAction,
+    WebsearchAction,
 )
 from app.system.filesystem import Filesystem
 
@@ -70,6 +71,8 @@ class PolicyEngine:
 
         if isinstance(action, ShellAction):
             return self._evaluate_shell(action)
+        if isinstance(action, WebsearchAction):
+            return self._evaluate_websearch(action)
         return _block(f"unknown action type: {getattr(action, 'type', '?')}")
 
     # --- shell -------------------------------------------------------------- #
@@ -99,6 +102,12 @@ class PolicyEngine:
             )
 
         return _allow("shell command within policy")
+
+    # --- websearch ---------------------------------------------------------- #
+    def _evaluate_websearch(self, action: WebsearchAction) -> PolicyDecision:
+        if not self.settings.allow_websearch:
+            return _block("websearch is disabled (BORB_ALLOW_WEBSEARCH=false)")
+        return _allow("websearch within policy")
 
     # --- helpers ------------------------------------------------------------ #
     def _within_workspace(self, path: str) -> bool:

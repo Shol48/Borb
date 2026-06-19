@@ -38,6 +38,10 @@ class LLMProvider(str, Enum):
     OPENAI = "openai"  # OpenAI-compatible (OpenAI, vLLM, LM Studio, ...)
 
 
+class WebsearchProvider(str, Enum):
+    DUCKDUCKGO = "duckduckgo"  # no API key required (via the ``ddgs`` package)
+
+
 class Settings(BaseSettings):
     """Immutable backend configuration, sourced from env / ``.env``."""
 
@@ -61,6 +65,7 @@ class Settings(BaseSettings):
     allow_process_control: bool = False
     allow_package_install: bool = False
     allow_sudo: bool = False
+    allow_websearch: bool = True
 
     # --- audit ---
     audit_log: bool = True
@@ -76,6 +81,11 @@ class Settings(BaseSettings):
 
     openai_base_url: str = "https://api.openai.com/v1"
     openai_api_key: Optional[str] = None
+
+    # --- websearch ---
+    websearch_provider: WebsearchProvider = WebsearchProvider.DUCKDUCKGO
+    websearch_max_results: int = Field(default=5, ge=1, le=25)
+    websearch_timeout: int = 20
 
     # --- agent loop ---
     agent_max_steps: int = Field(default=6, ge=1, le=50)

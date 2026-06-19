@@ -1,5 +1,5 @@
 from app.config import AuthorityMode, Settings
-from app.schemas import PolicyDecisionType, ShellAction
+from app.schemas import PolicyDecisionType, ShellAction, WebsearchAction
 from app.system.policy import PolicyEngine
 
 
@@ -51,3 +51,15 @@ def test_shell_inside_workspace_allowed():
     engine = PolicyEngine(_settings())
     decision = engine.evaluate(ShellAction(command="ls", cwd="/workspace/sub"))
     assert decision.decision == PolicyDecisionType.ALLOW
+
+
+def test_websearch_allowed_in_normal_mode():
+    engine = PolicyEngine(_settings(allow_websearch=True))
+    decision = engine.evaluate(WebsearchAction(query="latest python release"))
+    assert decision.decision == PolicyDecisionType.ALLOW
+
+
+def test_websearch_blocked_when_disabled():
+    engine = PolicyEngine(_settings(allow_websearch=False))
+    decision = engine.evaluate(WebsearchAction(query="latest python release"))
+    assert decision.decision == PolicyDecisionType.BLOCK

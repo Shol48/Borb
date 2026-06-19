@@ -241,6 +241,7 @@ class AgentCore:
                         "type": "tool_call",
                         "intent": getattr(action, "intent", None),
                         "command": getattr(action, "command", None),
+                        "query": getattr(action, "query", None),
                         "decision": decision.decision.value,
                         "executed": False,
                     }
@@ -262,6 +263,7 @@ class AgentCore:
                     "type": "tool_call",
                     "intent": getattr(action, "intent", None),
                     "command": getattr(action, "command", None),
+                    "query": getattr(action, "query", None),
                     "decision": decision.decision.value,
                     "executed": decision.decision == PolicyDecisionType.ALLOW,
                 }
