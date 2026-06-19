@@ -9,6 +9,17 @@ from app.llm.base import LLMProviderBase, StreamChunk
 from app.schemas import ChatRequest
 from app.system.executor import SystemExecutor
 from app.system.policy import PolicyEngine
+from app.system.websearch.base import SearchResult, WebsearchProviderBase
+
+
+class FakeWebsearch(WebsearchProviderBase):
+    name = "fake"
+
+    def __init__(self, results):
+        self._results = results
+
+    async def search(self, query, max_results=5):
+        return self._results
 
 
 class ScriptedLLM(LLMProviderBase):
@@ -28,11 +39,11 @@ class ScriptedLLM(LLMProviderBase):
         yield StreamChunk(kind="content", text=self._replies.pop(0))
 
 
-def _agent(settings, llm):
+def _agent(settings, llm, websearch=None):
     return AgentCore(
         settings=settings,
         llm=llm,
-        executor=SystemExecutor(settings),
+        executor=SystemExecutor(settings, websearch=websearch),
         policy=PolicyEngine(settings),
         audit=AuditLogger(settings),
         sessions=SessionStore(),
@@ -71,6 +82,30 @@ async def test_executes_shell_then_finishes(tmp_path):
     assert len(resp.actions) == 1
     assert resp.actions[0].exit_code == 0
     assert "borb" in resp.actions[0].stdout
+
+
+@pytest.mark.asyncio
+async def test_executes_websearch_then_finishes():
+    settings = Settings(authority_mode=AuthorityMode.AUTHORITY, audit_log=False)
+    replies = [
+        json.dumps(
+            {
+                "done": False,
+                "actions": [{"type": "websearch", "query": "borb bird"}],
+            }
+        ),
+        json.dumps({"answer": "Found it.", "done": True}),
+    ]
+    websearch = FakeWebsearch(
+        [SearchResult(title="Borb", url="https://example.com", snippet="a round bird")]
+    )
+    agent = _agent(settings, ScriptedLLM(replies), websearch=websearch)
+    resp = await agent.handle(ChatRequest(prompt="search for borb"))
+    assert resp.answer == "Found it."
+    assert len(resp.actions) == 1
+    assert resp.actions[0].type.value == "websearch"
+    assert resp.actions[0].query == "borb bird"
+    assert "Borb" in (resp.actions[0].output or "")
 
 
 @pytest.mark.asyncio

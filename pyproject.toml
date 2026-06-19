@@ -15,6 +15,7 @@ dependencies = [
     "pydantic>=2.5",
     "pydantic-settings>=2.1",
     "httpx>=0.26",
+    "ddgs>=6.0",
 ]
 
 [project.optional-dependencies]

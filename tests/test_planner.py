@@ -1,5 +1,5 @@
 from app.agent.planner import parse_plan
-from app.schemas import ShellAction
+from app.schemas import ShellAction, WebsearchAction
 
 
 def test_plain_answer_without_json():
@@ -54,3 +54,15 @@ def test_skips_malformed_actions():
     assert len(plan.actions) == 1
     assert isinstance(plan.actions[0], ShellAction)
     assert plan.actions[0].command == "ls"
+
+
+def test_discriminates_shell_and_websearch_actions():
+    text = """{"actions": [
+        {"type": "shell", "command": "ls"},
+        {"type": "websearch", "query": "pydantic discriminated union"}
+    ], "done": false}"""
+    plan = parse_plan(text)
+    assert len(plan.actions) == 2
+    assert isinstance(plan.actions[0], ShellAction)
+    assert isinstance(plan.actions[1], WebsearchAction)
+    assert plan.actions[1].query == "pydantic discriminated union"

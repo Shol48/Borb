@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from enum import Enum
-from typing import Any, Dict, List, Literal, Optional
+from typing import Annotated, Any, Dict, List, Literal, Optional, Union
 
 from pydantic import BaseModel, Field
 
@@ -13,6 +13,7 @@ from pydantic import BaseModel, Field
 # --------------------------------------------------------------------------- #
 class ActionType(str, Enum):
     SHELL = "shell"
+    WEBSEARCH = "websearch"
 
 
 class ShellAction(BaseModel):
@@ -22,9 +23,26 @@ class ShellAction(BaseModel):
     cwd: Optional[str] = None
 
 
-# Borb works exclusively through the shell. Every task — creating, reading or
-# deleting files, browsing, system tasks, etc. — is expressed as a shell command.
-Action = ShellAction
+class WebsearchAction(BaseModel):
+    """Search the web for information.
+
+    A first-class action (not routed through the shell) so the model never has
+    to hand-craft search URLs or rely on a CLI tool being installed. The backend
+    runs the query against the configured search provider and feeds the results
+    back as an observation.
+    """
+
+    type: Literal[ActionType.WEBSEARCH] = ActionType.WEBSEARCH
+    intent: Optional[str] = None
+    query: str
+    # Optional override of the configured default (BORB_WEBSEARCH_MAX_RESULTS).
+    max_results: Optional[int] = None
+
+
+# Borb works through the shell for system access (creating, reading or deleting
+# files, browsing, system tasks, ...) and has a dedicated ``websearch`` action
+# for looking things up on the internet. The union is discriminated on ``type``.
+Action = Annotated[Union[ShellAction, WebsearchAction], Field(discriminator="type")]
 
 
 # --------------------------------------------------------------------------- #
@@ -50,6 +68,7 @@ class ActionResult(BaseModel):
     intent: Optional[str] = None
     # echo of the relevant fields for transparency / audit
     command: Optional[str] = None
+    query: Optional[str] = None
     path: Optional[str] = None
     exit_code: Optional[int] = None
     stdout: Optional[str] = None

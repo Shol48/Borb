@@ -25,6 +25,7 @@ from app.llm.router import get_llm_provider
 from app.schemas import ChatRequest, ChatResponse
 from app.system.executor import SystemExecutor
 from app.system.policy import PolicyEngine
+from app.system.websearch.router import get_websearch_provider
 
 logging.basicConfig(
     level=logging.INFO,
@@ -38,7 +39,7 @@ def build_agent() -> AgentCore:
     return AgentCore(
         settings=settings,
         llm=get_llm_provider(),
-        executor=SystemExecutor(settings),
+        executor=SystemExecutor(settings, websearch=get_websearch_provider()),
         policy=PolicyEngine(settings),
         audit=get_audit_logger(),
         sessions=SessionStore(),
@@ -112,6 +113,7 @@ async def config() -> dict:
             "process_control": s.allow_process_control,
             "package_install": s.allow_package_install,
             "sudo": s.allow_sudo,
+            "websearch": s.allow_websearch,
         },
         "llm_provider": s.llm_provider.value,
         "llm_model": s.llm_model,
