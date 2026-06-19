@@ -6,13 +6,19 @@ execution layer, the policy/authority layer and the audit layer.
 
 from __future__ import annotations
 
+import asyncio
+import json
 import logging
 from contextlib import asynccontextmanager
+from typing import AsyncIterator
 
 from fastapi import FastAPI
+from fastapi.responses import StreamingResponse
 
 from app import __version__
 from app.agent.core import AgentCore, SessionStore
+from app.agent.diary import write_diary
+from app.agent.scheduler import run_diary_scheduler
 from app.audit.logger import get_audit_logger
 from app.config import get_settings
 from app.llm.router import get_llm_provider
@@ -55,11 +61,23 @@ async def lifespan(app: FastAPI):
             "AUTHORITY mode is active: actions run WITHOUT policy checks or "
             "confirmation. Use only for local development/testing."
         )
-    app.state.agent = build_agent()
+    agent = build_agent()
+    app.state.agent = agent
+
+    diary_task: asyncio.Task | None = None
+    if settings.diary_enabled:
+        diary_task = asyncio.create_task(run_diary_scheduler(agent))
+    app.state.diary_task = diary_task
+
     yield
-    provider = getattr(app.state, "agent", None)
-    if provider is not None:
-        await provider.llm.aclose()
+
+    if diary_task is not None:
+        diary_task.cancel()
+        try:
+            await diary_task
+        except asyncio.CancelledError:
+            pass
+    await agent.llm.aclose()
 
 
 app = FastAPI(title="Borb", version=__version__, lifespan=lifespan)
@@ -99,6 +117,11 @@ async def config() -> dict:
         "llm_model": s.llm_model,
         "agent_max_steps": s.agent_max_steps,
         "audit_log": s.audit_log,
+        "diary": {
+            "enabled": s.diary_enabled,
+            "time": s.diary_time,
+            "dir": s.diary_dir,
+        },
     }
 
 
@@ -106,6 +129,33 @@ async def config() -> dict:
 async def chat(request: ChatRequest) -> ChatResponse:
     agent: AgentCore = app.state.agent
     return await agent.handle(request)
+
+
+@app.post("/chat/stream")
+async def chat_stream(request: ChatRequest) -> StreamingResponse:
+    """Stream the reply as Server-Sent Events.
+
+    Each event is ``data: <json>\\n\\n`` where the JSON carries a ``type``
+    (``start`` / ``thinking`` / ``answer`` / ``tool_call`` / ``tool_result`` /
+    ``paused`` / ``done``) plus its payload.
+    """
+
+    agent: AgentCore = app.state.agent
+
+    async def event_source() -> AsyncIterator[str]:
+        async for event in agent.handle_stream(request):
+            yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
+
+    return StreamingResponse(event_source(), media_type="text/event-stream")
+
+
+@app.post("/diary/run")
+async def diary_run() -> dict:
+    """Manually trigger a diary entry now (mainly for testing)."""
+
+    agent: AgentCore = app.state.agent
+    path = await write_diary(agent)
+    return {"status": "ok", "path": str(path)}
 
 
 def run() -> None:

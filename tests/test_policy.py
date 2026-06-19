@@ -1,5 +1,5 @@
 from app.config import AuthorityMode, Settings
-from app.schemas import PolicyDecisionType, ShellAction, WriteFileAction
+from app.schemas import PolicyDecisionType, ShellAction
 from app.system.policy import PolicyEngine
 
 
@@ -41,15 +41,13 @@ def test_destructive_command_requires_confirm():
     assert decision.decision == PolicyDecisionType.CONFIRM
 
 
-def test_write_outside_workspace_requires_confirm():
+def test_shell_cwd_outside_workspace_requires_confirm():
     engine = PolicyEngine(_settings())
-    decision = engine.evaluate(WriteFileAction(path="/etc/passwd", content="x"))
+    decision = engine.evaluate(ShellAction(command="ls", cwd="/etc"))
     assert decision.decision == PolicyDecisionType.CONFIRM
 
 
-def test_write_inside_workspace_allowed():
+def test_shell_inside_workspace_allowed():
     engine = PolicyEngine(_settings())
-    decision = engine.evaluate(
-        WriteFileAction(path="/workspace/sub/file.txt", content="x")
-    )
+    decision = engine.evaluate(ShellAction(command="ls", cwd="/workspace/sub"))
     assert decision.decision == PolicyDecisionType.ALLOW

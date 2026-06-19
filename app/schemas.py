@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from enum import Enum
-from typing import Any, Dict, List, Literal, Optional, Union
+from typing import Any, Dict, List, Literal, Optional
 
 from pydantic import BaseModel, Field
 
@@ -13,9 +13,6 @@ from pydantic import BaseModel, Field
 # --------------------------------------------------------------------------- #
 class ActionType(str, Enum):
     SHELL = "shell"
-    READ_FILE = "read_file"
-    WRITE_FILE = "write_file"
-    LIST_DIR = "list_dir"
 
 
 class ShellAction(BaseModel):
@@ -25,27 +22,9 @@ class ShellAction(BaseModel):
     cwd: Optional[str] = None
 
 
-class ReadFileAction(BaseModel):
-    type: Literal[ActionType.READ_FILE] = ActionType.READ_FILE
-    intent: Optional[str] = None
-    path: str
-
-
-class WriteFileAction(BaseModel):
-    type: Literal[ActionType.WRITE_FILE] = ActionType.WRITE_FILE
-    intent: Optional[str] = None
-    path: str
-    content: str = ""
-    summary: Optional[str] = None
-
-
-class ListDirAction(BaseModel):
-    type: Literal[ActionType.LIST_DIR] = ActionType.LIST_DIR
-    intent: Optional[str] = None
-    path: str
-
-
-Action = Union[ShellAction, ReadFileAction, WriteFileAction, ListDirAction]
+# Borb works exclusively through the shell. Every task — creating, reading or
+# deleting files, browsing, system tasks, etc. — is expressed as a shell command.
+Action = ShellAction
 
 
 # --------------------------------------------------------------------------- #

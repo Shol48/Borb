@@ -2,13 +2,18 @@
 
 Borb is a **backend-centric, frontend-neutral AI assistant**. It accepts prompts
 over an HTTP API, routes them to a local or external LLM, lets the model plan
-**structured actions**, and executes those actions on the underlying system
-(shell, filesystem, …) under the control of a policy / authority layer.
+**shell commands**, and executes them on the underlying system under the control
+of a policy / authority layer.
 
-The guiding principle: Borb is not primarily a collection of narrow tools.
-Instead it gets access to the underlying system and works like an executing
-software agent — reading and writing files, running shell commands, analyzing
-projects, changing code, running tests.
+The guiding principle: Borb is not a collection of narrow tools. It works
+**exclusively through the shell** — every task (creating, reading or deleting
+files, browsing, running tests, system tasks, …) is a shell command. Really
+everything goes through the shell.
+
+Borb has a **continuous memory** of the running conversation, and keeps a
+**daily diary**: once a day it reflects on what happened and writes an entry to
+disk, then clears its live context so it starts fresh. The diary is its
+long-term memory, which it can re-read through the shell.
 
 ## Architecture
 
@@ -25,13 +30,16 @@ app/
     router.py        #   provider selection
 
   agent/             # Agent Core
-    core.py          #   orchestration loop
+    core.py          #   orchestration loop (+ streaming) + global memory
     prompts.py       #   system prompt + action protocol
+    system_prompt.md #   editable persona / protocol template
     planner.py       #   parse model reply -> structured plan
+    diary.py         #   daily diary entry (reflect, persist, clear context)
+    scheduler.py     #   wakes up daily at diary_time
 
   system/            # System Execution + Policy/Authority Layer
-    executor.py      #   runs shell / file actions
-    filesystem.py    #   file read/write/list + containment helpers
+    executor.py      #   runs shell commands
+    filesystem.py    #   file write + containment helpers
     policy.py        #   PolicyEngine (allow / confirm / block)
 
   audit/             # Audit Layer
@@ -67,9 +75,14 @@ borb            # or: uvicorn app.main:app --reload
 
 ### Endpoints
 
-- `GET  /health` — liveness + active mode/provider.
-- `GET  /config` — non-secret view of the active configuration.
-- `POST /chat`   — main entry point.
+- `GET  /health`      — liveness + active mode/provider.
+- `GET  /config`      — non-secret view of the active configuration.
+- `POST /chat`        — main entry point (single JSON response).
+- `POST /chat/stream` — same, streamed as Server-Sent Events.
+- `POST /diary/run`   — manually trigger a diary entry now (testing).
+
+`session_id` is optional: requests without one share Borb's single, continuous
+conversation, so the frontend does not have to resend the chat history.
 
 Request:
 
@@ -97,26 +110,49 @@ Response:
 }
 ```
 
-## Action model
+## Reply protocol
 
-The model does not emit free shell text. It plans **structured actions** as a
-single JSON object; the backend interprets, gates and executes them:
+Borb first writes its reply in plain natural language (streamed to the user) and,
+only when it needs to act, appends a single fenced ```json block with **shell
+actions** at the end. The prose before the block is the user-facing answer /
+narration ("what I'm about to do"); the backend parses, gates and executes the
+actions:
+
+````
+Let me run the tests first.
 
 ```json
 {
   "done": false,
   "actions": [
-    {"type": "shell", "intent": "run_tests", "command": "pytest", "cwd": "/workspace/project"},
-    {"type": "read_file", "path": "/workspace/project/config.yaml"},
-    {"type": "write_file", "path": "/workspace/project/config.yaml", "content": "...", "summary": "change endpoint"},
-    {"type": "list_dir", "path": "/workspace/project"}
+    {"type": "shell", "intent": "run_tests", "command": "pytest", "cwd": "/workspace/project"}
   ]
 }
 ```
+````
 
-In `normal` mode, actions that require confirmation are returned in
+`shell` is the only action type — files, browsing and system tasks are all done
+with ordinary commands (`cat`, `ls`, `echo`, `rm`, …).
+
+In `normal` mode, commands that require confirmation are returned in
 `pending_confirmations` instead of being executed, so any frontend (web or
-voice) can decide how to confirm. In `authority` mode actions run directly.
+voice) can decide how to confirm. In `authority` mode commands run directly.
+
+### Streaming events
+
+`POST /chat/stream` emits Server-Sent Events (`data: <json>\n\n`) with a `type`:
+`start`, `thinking` (the model's separate reasoning channel, if any), `answer`
+(reply text, streamed live), `tool_call` (a command is about to run),
+`tool_result`, `paused` (confirmation needed), and `done`.
+
+## Memory & diary
+
+Borb keeps the whole running conversation in memory. To stop the context growing
+forever, a scheduler wakes up daily at `BORB_DIARY_TIME` (default `21:00`): Borb
+reflects on the day and the entry is saved as `YYYYMMDD_Borb_Diary_Entry.md` in
+`BORB_DIARY_DIR` (default `~/Borb_Diary`). Afterwards the live context is cleared,
+so the next day starts fresh. Borb re-reads past entries through the shell when it
+needs to recall something.
 
 ## Tests
 
@@ -126,11 +162,12 @@ pytest
 
 ## Status
 
-This is the minimal first version. Implemented:
-FastAPI backend, `/chat` endpoint, LLM provider abstraction (Ollama +
-OpenAI-compatible), structured action planning, system executor (shell + files),
-`BORB_AUTHORITY_MODE`, policy engine, and audit logging.
+Implemented: FastAPI backend, `/chat` + `/chat/stream` endpoints, LLM provider
+abstraction (Ollama + OpenAI-compatible) with streaming and a separate thinking
+channel, shell-only action planning, system executor, `BORB_AUTHORITY_MODE`,
+policy engine, audit logging, continuous in-memory conversation, and the daily
+diary with context reset.
 
-Not yet implemented (future): vLLM-specific provider niceties, persistent
-session storage, process start/stop control, package-install workflows,
-streaming responses, and the web/voice frontends.
+Not yet implemented (future): vLLM-specific provider niceties, persistent session
+storage across restarts, process start/stop control, package-install workflows,
+and the web/voice frontends.
