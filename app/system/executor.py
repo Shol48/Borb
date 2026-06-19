@@ -1,8 +1,10 @@
 """System Execution Layer.
 
-Executes the structured actions planned by the agent: shell commands, file
-reads/writes and directory listings. The executor itself does not make policy
-decisions - it simply executes. Gating is performed by the agent core via the
+Executes the structured actions planned by the agent. Borb works exclusively
+through the shell, so the only action type is a shell command — every task
+(creating, reading or deleting files, browsing, system tasks, ...) is expressed
+as a shell command. The executor itself does not make policy decisions - it
+simply executes. Gating is performed by the agent core via the
 :class:`~app.system.policy.PolicyEngine` before an action reaches here.
 """
 
@@ -17,12 +19,8 @@ from app.schemas import (
     Action,
     ActionResult,
     ActionType,
-    ListDirAction,
-    ReadFileAction,
     ShellAction,
-    WriteFileAction,
 )
-from app.system.filesystem import Filesystem
 
 # Cap captured shell output so a chatty command can not blow up the response.
 MAX_OUTPUT_CHARS = 20_000
@@ -31,18 +29,11 @@ MAX_OUTPUT_CHARS = 20_000
 class SystemExecutor:
     def __init__(self, settings: Settings) -> None:
         self.settings = settings
-        self.fs = Filesystem()
 
     async def execute(self, action: Action) -> ActionResult:
         try:
             if isinstance(action, ShellAction):
                 return await self._run_shell(action)
-            if isinstance(action, ReadFileAction):
-                return self._read_file(action)
-            if isinstance(action, WriteFileAction):
-                return self._write_file(action)
-            if isinstance(action, ListDirAction):
-                return self._list_dir(action)
             return ActionResult(
                 type=getattr(action, "type", ActionType.SHELL),
                 status="error",
@@ -98,37 +89,6 @@ class SystemExecutor:
             text=True,
             errors="replace",
             timeout=self.settings.shell_timeout,
-        )
-
-    # --- filesystem --------------------------------------------------------- #
-    def _read_file(self, action: ReadFileAction) -> ActionResult:
-        content = self.fs.read_file(action.path)
-        return ActionResult(
-            type=ActionType.READ_FILE,
-            intent=action.intent,
-            path=action.path,
-            output=_clip(content),
-            status="executed",
-        )
-
-    def _write_file(self, action: WriteFileAction) -> ActionResult:
-        written = self.fs.write_file(action.path, action.content)
-        return ActionResult(
-            type=ActionType.WRITE_FILE,
-            intent=action.intent,
-            path=action.path,
-            output=f"wrote {written} bytes to {action.path}",
-            status="executed",
-        )
-
-    def _list_dir(self, action: ListDirAction) -> ActionResult:
-        entries = self.fs.list_dir(action.path)
-        return ActionResult(
-            type=ActionType.LIST_DIR,
-            intent=action.intent,
-            path=action.path,
-            output=_clip("\n".join(entries)),
-            status="executed",
         )
 
 

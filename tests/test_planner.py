@@ -1,5 +1,5 @@
 from app.agent.planner import parse_plan
-from app.schemas import ShellAction, WriteFileAction
+from app.schemas import ShellAction
 
 
 def test_plain_answer_without_json():
@@ -11,7 +11,7 @@ def test_plain_answer_without_json():
 
 def test_parses_actions_and_marks_not_done():
     text = """
-    {"answer": "running tests", "done": false, "actions": [
+    {"done": false, "actions": [
         {"type": "shell", "intent": "run_tests", "command": "pytest"}
     ]}
     """
@@ -22,18 +22,35 @@ def test_parses_actions_and_marks_not_done():
     assert plan.actions[0].command == "pytest"
 
 
-def test_extracts_json_from_markdown_fence():
-    text = "Here you go:\n```json\n{\"answer\": \"done\", \"done\": true}\n```"
+def test_prose_then_fenced_json_block():
+    text = (
+        "Let me list the files first.\n\n"
+        "```json\n"
+        '{"actions": [{"type": "shell", "command": "ls -la"}], "done": false}\n'
+        "```"
+    )
     plan = parse_plan(text)
-    assert plan.answer == "done"
+    # The prose before the block is the user-facing answer/narration.
+    assert plan.answer == "Let me list the files first."
+    assert plan.done is False
+    assert len(plan.actions) == 1
+    assert plan.actions[0].command == "ls -la"
+
+
+def test_prose_only_is_a_final_answer():
+    text = "Here you go: all done, nothing to run."
+    plan = parse_plan(text)
+    assert plan.actions == []
     assert plan.done is True
+    assert plan.answer == text
 
 
 def test_skips_malformed_actions():
     text = """{"actions": [
-        {"type": "write_file", "path": "/tmp/x", "content": "hi"},
+        {"type": "shell", "command": "ls"},
         {"type": "totally_unknown"}
     ], "done": false}"""
     plan = parse_plan(text)
     assert len(plan.actions) == 1
-    assert isinstance(plan.actions[0], WriteFileAction)
+    assert isinstance(plan.actions[0], ShellAction)
+    assert plan.actions[0].command == "ls"

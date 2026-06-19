@@ -1,9 +1,20 @@
 """Action planner.
 
-Parses the model's reply into a structured :class:`Plan`. The model is asked to
-reply with a single JSON object, but real models add stray prose or markdown
-fences, so the planner extracts and validates the first JSON object it finds and
-degrades gracefully to a plain answer when no valid plan is present.
+Parses the model's reply into a structured :class:`Plan`.
+
+Borb replies with natural-language prose first (streamed to the user) and, only
+when it wants to act, appends a single fenced ```json block with its shell
+actions, e.g.::
+
+    Let me list the files first.
+
+    ```json
+    {"actions": [{"type": "shell", "command": "ls -la"}], "done": false}
+    ```
+
+The planner extracts that JSON block, treats the prose before it as the answer /
+narration, and degrades gracefully to a plain answer when no valid block is
+present (older models may also emit a bare JSON object, which is still handled).
 """
 
 from __future__ import annotations
@@ -11,7 +22,7 @@ from __future__ import annotations
 import json
 import re
 from dataclasses import dataclass, field
-from typing import List
+from typing import List, Optional, Tuple
 
 from pydantic import TypeAdapter, ValidationError
 
@@ -28,13 +39,18 @@ class Plan:
     raw: str = ""
 
 
-def _extract_json_object(text: str) -> str | None:
-    """Return the first balanced top-level JSON object substring, if any."""
+def _find_json_span(text: str) -> Optional[Tuple[int, int, str]]:
+    """Return ``(start, end, blob)`` of the model's JSON object, if any.
 
-    # Strip ```json ... ``` fences if present.
+    Prefers a fenced ```json ... ``` block; otherwise falls back to the first
+    balanced top-level ``{...}`` object. ``start``/``end`` index into ``text``
+    and cover the *whole* matched region (including fences), so the caller can
+    strip it to recover the surrounding prose.
+    """
+
     fenced = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", text, re.DOTALL)
     if fenced:
-        return fenced.group(1)
+        return fenced.start(), fenced.end(), fenced.group(1)
 
     start = text.find("{")
     if start == -1:
@@ -59,16 +75,19 @@ def _extract_json_object(text: str) -> str | None:
         elif ch == "}":
             depth -= 1
             if depth == 0:
-                return text[start : i + 1]
+                return start, i + 1, text[start : i + 1]
     return None
 
 
 def parse_plan(text: str) -> Plan:
     text = (text or "").strip()
-    blob = _extract_json_object(text)
-    if blob is None:
-        # No JSON at all -> treat the whole reply as a final answer.
+    span = _find_json_span(text)
+    if span is None:
+        # No JSON at all -> the whole reply is a plain final answer.
         return Plan(answer=text, actions=[], done=True, raw=text)
+
+    start, end, blob = span
+    prose = (text[:start] + text[end:]).strip()
 
     try:
         data = json.loads(blob)
@@ -78,7 +97,9 @@ def parse_plan(text: str) -> Plan:
     if not isinstance(data, dict):
         return Plan(answer=text, actions=[], done=True, raw=text)
 
-    answer = str(data.get("answer", "") or "")
+    # The prose around the JSON block is the user-facing answer/narration. Fall
+    # back to a legacy in-JSON "answer" field if there was no prose.
+    answer = prose or str(data.get("answer", "") or "")
     done = bool(data.get("done", True))
 
     actions: List[Action] = []

@@ -19,10 +19,7 @@ from app.schemas import (
     Action,
     PolicyDecision,
     PolicyDecisionType,
-    ReadFileAction,
     ShellAction,
-    WriteFileAction,
-    ListDirAction,
 )
 from app.system.filesystem import Filesystem
 
@@ -73,12 +70,6 @@ class PolicyEngine:
 
         if isinstance(action, ShellAction):
             return self._evaluate_shell(action)
-        if isinstance(action, WriteFileAction):
-            return self._evaluate_write(action)
-        if isinstance(action, ReadFileAction):
-            return self._evaluate_read(action)
-        if isinstance(action, ListDirAction):
-            return self._evaluate_read_path(action.path)
         return _block(f"unknown action type: {getattr(action, 'type', '?')}")
 
     # --- shell -------------------------------------------------------------- #
@@ -108,31 +99,6 @@ class PolicyEngine:
             )
 
         return _allow("shell command within policy")
-
-    # --- filesystem --------------------------------------------------------- #
-    def _evaluate_write(self, action: WriteFileAction) -> PolicyDecision:
-        if not self.settings.allow_filesystem:
-            return _block("filesystem access is disabled (BORB_ALLOW_FILESYSTEM=false)")
-        if not self._within_workspace(action.path):
-            return _confirm(
-                f"write target is outside the workspace root "
-                f"({self.settings.workspace_root})",
-                risk="high",
-            )
-        return _allow("write within workspace")
-
-    def _evaluate_read(self, action: ReadFileAction) -> PolicyDecision:
-        return self._evaluate_read_path(action.path)
-
-    def _evaluate_read_path(self, path: str) -> PolicyDecision:
-        if not self.settings.allow_filesystem:
-            return _block("filesystem access is disabled (BORB_ALLOW_FILESYSTEM=false)")
-        if not self._within_workspace(path):
-            return _confirm(
-                f"read target is outside the workspace root "
-                f"({self.settings.workspace_root})"
-            )
-        return _allow("read within workspace")
 
     # --- helpers ------------------------------------------------------------ #
     def _within_workspace(self, path: str) -> bool:

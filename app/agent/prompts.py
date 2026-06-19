@@ -10,7 +10,8 @@ the literal JSON braces ``{ }`` in the protocol stay untouched. Available
 placeholders:
 
 * ``$authority_mode``  -> the active mode (``normal`` / ``authority``),
-* ``$workspace_root``  -> the configured workspace root.
+* ``$workspace_root``  -> the configured workspace root,
+* ``$diary_dir``       -> the folder where Borb's diary entries live.
 """
 
 from __future__ import annotations
@@ -29,6 +30,7 @@ def build_system_prompt(settings: Settings) -> str:
     return template.safe_substitute(
         authority_mode=settings.authority_mode.value,
         workspace_root=settings.workspace_root,
+        diary_dir=settings.diary_dir,
     ).strip()
 
 

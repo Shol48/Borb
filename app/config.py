@@ -81,6 +81,15 @@ class Settings(BaseSettings):
     agent_max_steps: int = Field(default=6, ge=1, le=50)
     shell_timeout: int = 120
 
+    # --- diary ---
+    # Borb keeps a daily diary. At ``diary_time`` (local server time) he reflects
+    # on the day; the backend persists the entry as
+    # ``YYYYMMDD_Borb_Diary_Entry.md`` in ``diary_dir`` and then clears the live
+    # conversation context so the next day starts fresh.
+    diary_enabled: bool = True
+    diary_time: str = "21:00"  # HH:MM, 24h, local server time
+    diary_dir: str = "~/Borb_Diary"
+
     # --- server ---
     host: str = "127.0.0.1"
     port: int = 8000
